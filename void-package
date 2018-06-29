@@ -44,7 +44,7 @@ function docker() {
 }
 
 function cleanup() {
-	if containers="$(docker ps -a -q)"
+	if containers="$(docker ps -aqf name='void-package-')"
 	then 
 		docker rm "$containers" > /dev/null
 	fi
@@ -58,12 +58,13 @@ function docker_exec () {
 	tmpscript="/tmp/$RANDOM/tmp.sh"
 	mkdir -p "$(dirname "$tmpscript")"
 	echo -e "$@\\nexit \$?" > "$tmpscript"
-	docker run --privileged -i "$container" bash < "$tmpscript"
+	docker run  --name "void-package-$RANDOM" \
+		--privileged -i "$container" bash < "$tmpscript"
 	exitcode="$?"
 	docker commit $(docker ps -lq | head -1) "$docker_build_name" > /dev/null
 	rm "$tmpscript"
 	if [ "$exitcode" != "0" ]
-	then 
+	then
 		errprint "'$*' failed!" 
 		cleanup
 		exit $exitcode
@@ -91,6 +92,11 @@ do
 	esac
 done
 
+if [ ! "$packages" ]
+then
+	usage
+	exit 1
+fi
 print "Pulling latest docker image"
 if ! docker pull "$docker_image" > /dev/null
 then
