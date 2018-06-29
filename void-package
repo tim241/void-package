@@ -2,7 +2,7 @@
 
 docker_image="voidlinux/voidlinux"
 docker_build_name="$docker_image/buildbot"
-[ ! "$branch" ] && branch="master"
+branch="master"
 repo="https://github.com/void-linux/void-packages"
 if [ ! "$XDG_CACHE_HOME" ]
 then
