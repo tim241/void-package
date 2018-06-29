@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+docker_image="voidlinux/voidlinux"
+docker_build_name="$docker_image/buildbot"
+[ ! "$branch" ] && branch="master"
+repo="https://github.com/void-linux/void-packages"
+if [ ! "$XDG_CACHE_HOME" ]
+then
+	XDG_CACHE_HOME="$HOME/.cache/"
+fi
+cache_dir="$XDG_CACHE_HOME/void-package/"
+if [ ! -d "$cache_dir" ]
+then
+	mkdir -p "$cache_dir"
+fi
+
+_color_white='\033[1;37m'
+_color_green='\033[1;32m'
+_color_red='\033[1;31m'
+_color_yel='\033[0;33m'
+_color_blue='\033[0;34m'
+_color_reset='\033[0m' 
+
+# Print white text
+function print() {
+    echo -e "\\n${_color_green}=>>${_color_reset} ${_color_white}$* ${_color_reset}\\n"
+}
+# Print red error text
+function errprint() {
+    echo -e "\\n${_color_red}=>> ERROR:${_color_reset} ${_color_white}$*${_color_reset}\\n" >&2
+}
+# Print sub info
+function sprint() {
+    echo -e "  ${_color_blue}->${_color_white} $*${_color_reset}"
+}
+
+function docker() {
+	if [ "$UID" != "0 " ]
+	then
+		sudo "$(which docker)" $@
+	else
+		"$(which docker)" $@
+	fi
+}
+
+function cleanup() {
+	if containers="$(docker ps -a -q)"
+	then 
+		docker rm "$containers" > /dev/null
+	fi
+}
+
+function docker_exec () {
+	if [ ! "$container" ]
+	then
+		container="$docker_build_name"
+	fi
+	tmpscript="/tmp/$RANDOM/tmp.sh"
+	mkdir -p "$(dirname "$tmpscript")"
+	echo -e "$@\\nexit \$?" > "$tmpscript"
+	docker run --privileged -i "$container" bash < "$tmpscript"
+	exitcode="$?"
+	docker commit $(docker ps -lq | head -1) "$docker_build_name" > /dev/null
+	rm "$tmpscript"
+	if [ "$exitcode" != "0" ]
+	then 
+		errprint "'$*' failed!" 
+		cleanup
+		exit $exitcode
+	fi
+}
+
+function usage() {
+	echo "Examples"
+	echo "$0 --repo=tim241/void-packages --branch=wine-patch wine"
+	echo "$0 glibc firefox"
+}
+
+for argument in $@
+do 
+	case $argument in 
+		--repo=*) repo="${argument/--repo=/}"
+			if [[ $repo != https://* ]] 
+			then
+				repo="https://github.com/$repo"
+			fi
+			;;
+		--branch=*) branch="${argument/--branch=/}";;
+		--help|-*) usage; exit 1;;
+		*) packages+=("$argument");;
+	esac
+done
+
+print "Pulling latest docker image"
+if ! docker pull "$docker_image" > /dev/null
+then
+	print "Failed to pull latest docker image: '$docker_image'"
+	exit 1
+fi
+
+print "Installing dependencies"
+# First run, so docker image with tag 'buildbot' doesn't exist yet
+container="$docker_image"
+docker_exec 'xbps-install -S git base-devel xtools -y' > "$cache_dir/dependency.log" 2>&1
+unset container
+
+print "Cloning git repository"
+docker_exec "git clone '$repo' -b '$branch' /tmp/build --depth=1 -q"
+
+print "Checking template files"
+for package in "${packages[@]}"
+do
+	sprint "Checking template file for ${_color_white}'$package'"
+	docker_exec "xlint /tmp/build/srcpkgs/${package/-32bit/}/template"
+done
+
+print "Bootstrapping xbps-src"
+docker_exec "cd /tmp/build && ./xbps-src binary-bootstrap" > "$cache_dir/bootstrap.log" 2>&1
+
+for package in "${packages[@]}"
+do
+	print "Building package: '$package'"
+	docker_exec "cd /tmp/build && ./xbps-src pkg $package -j$(nproc)"
+done
+
+print "Cleaning up"
+cleanup
