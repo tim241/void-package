@@ -87,6 +87,7 @@ do
 			fi
 			;;
 		--branch=*) branch="${argument/--branch=/}";;
+		--patch=*) patch="${argument/--patch=/}";;
 		--help|-*) usage; exit 1;;
 		*) packages+=("$argument");;
 	esac
@@ -112,6 +113,14 @@ unset container
 
 print "Cloning git repository"
 docker_exec "git clone '$repo' -b '$branch' /tmp/build --depth=1 -q"
+
+if [ "$patch" ]
+then
+	print "Downloading patch"
+	docker_exec "curl '$patch' -o /tmp/package.patch"
+	print "Applying patch"
+	docker_exec "cd /tmp/build && patch -p1 < /tmp/package.patch"
+fi
 
 print "Checking template files"
 for package in "${packages[@]}"
