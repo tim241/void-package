@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-docker_image="void-linux/voidlinux"
+docker_image="voidlinux/voidlinux"
 docker_build_name="$docker_image/buildbot"
 branch="master"
 repo="https://github.com/void-linux/void-packages"
